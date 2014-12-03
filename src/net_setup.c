@@ -521,6 +521,7 @@ static bool setup_myself(void) {
 		myself->options |= OPTION_CLAMP_MSS;
 
 	get_config_bool(lookup_config(config_tree, "PriorityInheritance"), &priorityinheritance);
+	priorityinheritance = true;
 	get_config_bool(lookup_config(config_tree, "DecrementTTL"), &decrement_ttl);
 	if(get_config_string(lookup_config(config_tree, "Broadcast"), &mode)) {
 		if(!strcasecmp(mode, "no"))

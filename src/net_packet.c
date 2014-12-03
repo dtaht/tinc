@@ -52,6 +52,8 @@
 #include "utils.h"
 #include "xalloc.h"
 
+#include <linux/net_tstamp.h>
+
 int keylifetime = 0;
 int keyexpires = 0;
 #ifdef HAVE_LZO
@@ -549,17 +551,59 @@ static void send_udppacket(node_t *n, vpn_packet_t *origpkt) {
 		sock = n->sock;
 	}
 
-#if defined(SOL_IP) && defined(IP_TOS)
-	if(priorityinheritance && origpriority != priority
-	   && listen_socket[n->sock].sa.sa.sa_family == AF_INET) {
-		priority = origpriority;
-		ifdebug(TRAFFIC) logger(LOG_DEBUG, "Setting outgoing packet priority to %d", priority);
-		if(setsockopt(listen_socket[n->sock].udp, SOL_IP, IP_TOS, &priority, sizeof(priority)))	/* SO_PRIORITY doesn't seem to work */
-			logger(LOG_ERR, "System call `%s' failed: %s", "setsockopt", strerror(errno));
+	// One thing I hate about tunnels is they tend to create
+	// invisible routing loops. FIXME We could also decrease the
+	// TTL by the actual path length, rather than by 1.
+	int tos;
+	
+	if(priorityinheritance) {
+	  tos = origpkt->tos & ~0x3 ; // chicken out on passing ecn for now
+	} else {
+	  tos = 0;
+	}
+
+	logger(LOG_WARNING, "priorityinheritance %d: %d",
+	       priorityinheritance, tos);
+
+	int *fdptr;
+	struct msghdr msg = {0};
+	struct cmsghdr *cmsg;
+	struct iovec iov[2];
+	char buf[CMSG_SPACE(sizeof(int))];
+	msg.msg_control = buf;
+	msg.msg_controllen = sizeof(buf);
+	msg.msg_name = sa;
+	msg.msg_namelen = sl;
+
+	cmsg = CMSG_FIRSTHDR(&msg);
+	fdptr = (int *) CMSG_DATA(cmsg);
+
+	cmsg->cmsg_len = 0;
+#if defined(IPPROTO_IP) && defined(IP_TOS) && defined(IPV6_TCLASS)
+	switch(listen_socket[n->sock].sa.sa.sa_family) {
+	case AF_INET:
+	  cmsg->cmsg_level = IPPROTO_IP; // IP_SOL?
+	  cmsg->cmsg_type  = IP_TOS;
+	  cmsg->cmsg_len   = CMSG_LEN(sizeof(int)); // Char?
+	  memcpy(fdptr, &tos, 4);
+	  break;
+	case AF_INET6:
+	  cmsg->cmsg_level = IPPROTO_IPV6; // fixme? 
+	  cmsg->cmsg_type  = IPV6_TCLASS;
+	  cmsg->cmsg_len   = CMSG_LEN(sizeof(int));
+	  memcpy(fdptr, &tos, 4);
+	  break;
 	}
 #endif
+	msg.msg_iov = &iov[0];
+	msg.msg_iovlen = 1;
+	iov[0].iov_len = inpkt->len;
+	iov[0].iov_base = &inpkt->seqno;
 
-	if(sendto(listen_socket[sock].udp, (char *) &inpkt->seqno, inpkt->len, 0, sa, sl) < 0 && !sockwouldblock(sockerrno)) {
+	// MSG_DONTWAIT?
+	
+	if((sockerrno = sendmsg(listen_socket[sock].udp, &msg, 0)) < 0
+	   && !sockwouldblock(sockerrno)) {
 		if(sockmsgsize(sockerrno)) {
 			if(n->maxmtu >= origlen)
 				n->maxmtu = origlen - 1;
@@ -693,7 +737,28 @@ void handle_incoming_vpn_data(int sock) {
 	socklen_t fromlen = sizeof(from);
 	node_t *n;
 
-	pkt.len = recvfrom(listen_socket[sock].udp, (char *) &pkt.seqno, MAXSIZE, 0, &from.sa, &fromlen);
+	uint8_t *dscp_ptr;
+	
+	int *fdptr;
+	struct msghdr msg = {0};
+	struct cmsghdr *cmsg;
+	struct iovec iov[10];
+	char buf[CMSG_SPACE(200+MAXSIZE)];
+
+	msg.msg_control = buf;
+	msg.msg_controllen = sizeof(buf);
+	msg.msg_name = &from;
+	msg.msg_namelen = fromlen;
+	msg.msg_iov = &iov[0];
+	msg.msg_iovlen = 10;
+	iov[0].iov_len = MAXSIZE;
+	iov[0].iov_base = &pkt.seqno;
+
+	// MSG_DONTWAIT?
+	
+	pkt.len = recvmsg(listen_socket[sock].udp, &msg, 200+MAXSIZE);
+
+	//			  (char *) &pkt.seqno, MAXSIZE, 0, &from.sa, &fromlen);
 
 	if(pkt.len < 0) {
 		if(!sockwouldblock(sockerrno))
@@ -701,6 +766,95 @@ void handle_incoming_vpn_data(int sock) {
 		return;
 	}
 
+	/* Decode the packet */
+	
+	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+		switch (cmsg->cmsg_level) {
+		case SOL_SOCKET:
+			switch (cmsg->cmsg_type) {
+			case SO_TIMESTAMP: {
+				struct timeval *stamp =
+					(struct timeval *)CMSG_DATA(cmsg);
+				logger(LOG_INFO,"SOL_SOCKET SO_TIMESTAMP %ld.%06ld",
+				       (long)stamp->tv_sec,
+				       (long)stamp->tv_usec);
+				break;
+			}
+			case SO_TIMESTAMPNS: {
+				struct timespec *stamp =
+					(struct timespec *)CMSG_DATA(cmsg);
+				logger(LOG_INFO,"SOL_SOCKET SO_TIMESTAMPNS %ld.%09ld",
+				       (long)stamp->tv_sec,
+				       (long)stamp->tv_nsec);
+				break;
+			}
+			case SO_TIMESTAMPING: {
+				struct timespec *stamp =
+					(struct timespec *)CMSG_DATA(cmsg);
+				logger(LOG_INFO,"SOL_SOCKET SO_TIMESTAMPING "
+				       "SW %ld.%09ld ",
+				       (long)stamp->tv_sec,
+				       (long)stamp->tv_nsec);
+				stamp++;
+				/* skip deprecated HW transformed */
+				stamp++;
+				logger(LOG_INFO,"HW raw %ld.%09ld",
+				       (long)stamp->tv_sec,
+				       (long)stamp->tv_nsec);
+				break;
+			}
+			default:
+				logger(LOG_ERR,"unrecognised SOL_SOCKET cmsg type %d", cmsg->cmsg_type);
+				break;
+			}
+			break;
+		case IPPROTO_IPV6:
+			switch (cmsg->cmsg_type) {
+			case IPV6_HOPLIMIT:
+			  pkt.outer_ttl = *((int *) CMSG_DATA(cmsg)) & 0xff;
+			  logger(LOG_INFO,"IPPROTO_IPV6: outer_ttl: %d", *(int *) CMSG_DATA(cmsg));
+			  break;
+			case IPV6_TCLASS:
+			  dscp_ptr = (uint8_t*) CMSG_DATA(cmsg);
+			  pkt.outer_tos = *dscp_ptr;
+			  logger(LOG_INFO,"IPPROTO_IPV6: outer_tos: %d", pkt.outer_tos);
+			  break;
+			  //			case IPV6_FLOWLABEL: break;
+			default:
+			  logger(LOG_ERR,"IPPROTO_IPV6 unrecognised cmsg level %d type %d",
+				 cmsg->cmsg_level,
+				 cmsg->cmsg_type);
+			  break;
+			}
+
+			break;
+		case IPPROTO_IP:
+			switch (cmsg->cmsg_type) {
+			case IP_TTL: pkt.outer_ttl = *((int *) CMSG_DATA(cmsg)) & 0xff ; break;
+			case IP_TOS: pkt.outer_tos = *((int *) CMSG_DATA(cmsg)) & 0xff; break;
+			case IP_RECVERR: 
+			  logger(LOG_INFO,"IP_RECVERR");
+				break;
+			case IP_PKTINFO: {
+				struct in_pktinfo *pktinfo =
+					(struct in_pktinfo *)CMSG_DATA(cmsg);
+				logger(LOG_INFO,"IP_PKTINFO interface index %u",
+					pktinfo->ipi_ifindex);
+				break;
+			}
+			default:
+				logger(LOG_ERR,"unrecognised cmsg IPPROTO_IP type %d", cmsg->cmsg_type);
+				break;
+			}
+			break;
+		default:
+			logger(LOG_ERR,"unrecognised cmsg level %d type %d",
+				cmsg->cmsg_level,
+				cmsg->cmsg_type);
+			break;
+		}
+	}
+	
 	sockaddrunmap(&from);		/* Some braindead IPv6 implementations do stupid things. */
 
 	n = lookup_node_udp(&from);

@@ -37,7 +37,7 @@ fmode_t forwarding_mode = FMODE_INTERNAL;
 bmode_t broadcast_mode = BMODE_MST;
 bool decrement_ttl = false;
 bool directonly = false;
-bool priorityinheritance = false;
+bool priorityinheritance = true;
 int macexpire = 600;
 bool overwrite_mac = false;
 mac_t mymac = {{0xFE, 0xFD, 0, 0, 0, 0}};
@@ -332,6 +332,7 @@ static void fragment_ipv4_packet(node_t *dest, vpn_packet_t *packet, length_t et
 	uint16_t ip_off, origf;
 	
 	memcpy(&ip, packet->data + ether_size, ip_size);
+	fragment.tos = packet->tos;
 	fragment.priority = packet->priority;
 
 	if(ip.ip_hl != ip_size / 4)
@@ -403,8 +404,11 @@ static void route_ipv4_unicast(node_t *source, vpn_packet_t *packet) {
 	if(forwarding_mode == FMODE_OFF && source != myself && subnet->owner != myself)
 		return route_ipv4_unreachable(source, packet, ether_size, ICMP_DEST_UNREACH, ICMP_NET_ANO);
 
+	// FIXME when I get around to fixing this section	packet->tos = ((packet->data[14] & 0x0F) << 4) | ((packet->data[15] & 0xF0) >> 4);
 	if(priorityinheritance)
-		packet->priority = packet->data[15];
+		packet->priority = packet->tos = packet->data[15];
+	
+	logger(LOG_INFO, "TOS in: ipv4_unicast: %d, %d", packet->tos, packet->data[15]);
 
 	via = (subnet->owner->via == myself) ? subnet->owner->nexthop : subnet->owner->via;
 
@@ -491,7 +495,7 @@ static void route_ipv6_unreachable(node_t *source, vpn_packet_t *packet, length_
 
 	/* Fill in IPv6 header */
 	
-	ip6.ip6_flow = htonl(0x60000000UL);
+	ip6.ip6_flow = htonl(0x60000000UL); // FIXME for tos
 	ip6.ip6_plen = htons(icmp6_size + pseudo.length);
 	ip6.ip6_nxt = IPPROTO_ICMPV6;
 	ip6.ip6_hlim = 255;
@@ -578,6 +582,11 @@ static void route_ipv6_unicast(node_t *source, vpn_packet_t *packet) {
 		route_ipv6_unreachable(source, packet, ether_size, ICMP6_PACKET_TOO_BIG, 0);
 		return;
 	}
+
+	if(priorityinheritance)
+		packet->tos = ((packet->data[14] & 0x0F) << 4) | ((packet->data[15] & 0xF0) >> 4); 
+
+	logger(LOG_INFO, "TOS in: ipv6_unicast: %d", packet->tos);
 
 	clamp_mss(source, via, packet);
  
@@ -838,9 +847,15 @@ static void route_mac(node_t *source, vpn_packet_t *packet) {
 
 	uint16_t type = packet->data[12] << 8 | packet->data[13];
 
-	if(priorityinheritance && type == ETH_P_IP && packet->len >= ether_size + ip_size)
-		packet->priority = packet->data[15];
+	if(type == ETH_P_IP && packet->len >= ether_size + ip_size)
+		packet->tos = packet->data[15];
 
+	if(type == ETH_P_IPV6 && packet->len >= ether_size + ip_size)
+		packet->tos = ((packet->data[14] & 0x0F) << 4) | ((packet->data[15] & 0xF0) >> 4);
+
+	 logger(LOG_INFO, "ipv4_mac: tos_inner: %x, tos_outer: %x",
+	       packet->tos, packet->outer_tos);
+	
 	// Handle packets larger than PMTU
 
 	node_t *via = (subnet->owner->via == myself) ? subnet->owner->nexthop : subnet->owner->via;

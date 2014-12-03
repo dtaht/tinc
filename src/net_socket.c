@@ -74,10 +74,14 @@ static void configure_tcp(connection_t *c) {
 	setsockopt(c->socket, SOL_TCP, TCP_NODELAY, (void *)&option, sizeof(option));
 #endif
 
-#if defined(SOL_IP) && defined(IP_TOS) && defined(IPTOS_LOWDELAY)
+#if defined(IPPROTO_IP) && defined(IP_TOS) && defined(IPTOS_LOWDELAY)
 	option = IPTOS_LOWDELAY;
-	setsockopt(c->socket, SOL_IP, IP_TOS, (void *)&option, sizeof(option));
+	setsockopt(c->socket, IPPROTO_IP, IP_TOS, (void *)&option, sizeof(option));
+#if defined(IPPROTO_IPV6) && defined(IPV6_TCLASS)
+       	setsockopt(c->socket, IPPROTO_IPV6, IPV6_TCLASS, (void *)&option, sizeof(option));
 #endif
+#endif
+	
 }
 
 static bool bind_to_interface(int sd) {
@@ -222,10 +226,47 @@ int setup_vpn_in_socket(const sockaddr_t *sa) {
 	if(udp_sndbuf && setsockopt(nfd, SOL_SOCKET, SO_SNDBUF, (void *)&udp_sndbuf, sizeof(udp_sndbuf)))
 		logger(LOG_WARNING, "Can't set UDP SO_SNDBUF to %i: %s", udp_sndbuf, strerror(errno));
 
-#if defined(IPPROTO_IPV6) && defined(IPV6_V6ONLY)
-	if(sa->sa.sa_family == AF_INET6)
+#if defined(IPPROTO_IPV6)
+#if defined(IPV6_V6ONLY)
+	if(sa->sa.sa_family == AF_INET6) {
 		setsockopt(nfd, IPPROTO_IPV6, IPV6_V6ONLY, (void *)&option, sizeof option);
+ 	}
 #endif
+#if defined(IPV6_TCLASS)
+	if(sa->sa.sa_family == AF_INET6) {
+		int dscp = IPTOS_LOWDELAY;
+		setsockopt(nfd, IPPROTO_IPV6, IPV6_TCLASS, (void *)&dscp, sizeof dscp);
+		setsockopt(nfd, IPPROTO_IPV6, IPV6_RECVTCLASS, (void *)&option, sizeof option);
+		setsockopt(nfd, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, (void *)&option, sizeof option);
+ 	}
+#endif
+#endif
+
+#ifndef SO_TIMESTAMPING
+# define SO_TIMESTAMPING         37
+# define SCM_TIMESTAMPING        SO_TIMESTAMPING
+#endif
+
+#ifndef SO_TIMESTAMPNS
+# define SO_TIMESTAMPNS 35
+#endif
+
+#ifndef SIOCGSTAMPNS
+# define SIOCGSTAMPNS 0x8907
+#endif
+
+#ifndef SIOCSHWTSTAMP
+# define SIOCSHWTSTAMP 0x89b0
+#endif
+
+#if defined(SO_TIMESTAMPNS)
+	if(setsockopt(nfd, SOL_SOCKET, SO_TIMESTAMPNS, (void *)&option, sizeof option) < 0)
+	  logger(LOG_INFO,"%s: %s\n", "setsockopt SO_TIMESTAMPNS", strerror(errno));	  
+#endif
+	
+	if (setsockopt(nfd, SOL_IP, IP_PKTINFO,
+		       &option, sizeof(option)) < 0)
+	  logger(LOG_INFO,"%s: %s\n", "setsockopt IP_PKTINFO", strerror(errno));
 
 #if defined(IP_DONTFRAG) && !defined(IP_DONTFRAGMENT)
 #define IP_DONTFRAGMENT IP_DONTFRAG
@@ -434,8 +475,9 @@ begin:
 	if(proxytype != PROXY_EXEC) {
 #if defined(SOL_IPV6) && defined(IPV6_V6ONLY)
 		int option = 1;
-		if(c->address.sa.sa_family == AF_INET6)
+		if(c->address.sa.sa_family == AF_INET6) {
 			setsockopt(c->socket, SOL_IPV6, IPV6_V6ONLY, (void *)&option, sizeof option);
+		}
 #endif
 
 		bind_to_interface(c->socket);
