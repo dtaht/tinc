@@ -853,7 +853,7 @@ static void route_mac(node_t *source, vpn_packet_t *packet) {
 	if(type == ETH_P_IPV6 && packet->len >= ether_size + ip_size)
 		packet->tos = ((packet->data[14] & 0x0F) << 4) | ((packet->data[15] & 0xF0) >> 4);
 
-	 logger(LOG_INFO, "ipv4_mac: tos_inner: %x, tos_outer: %x",
+	 ifdebug(TRAFFIC) logger(LOG_INFO, "ipv4_mac: tos_inner: %x, tos_outer: %x",
 	       packet->tos, packet->outer_tos);
 	
 	// Handle packets larger than PMTU

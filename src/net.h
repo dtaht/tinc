@@ -83,7 +83,7 @@ typedef struct vpn_packet_t {
 	uint8_t outer_tos;			/* TOS */
         uint8_t ttl;				/* TTL of the encapsulated packet */
 	uint8_t outer_ttl;			/* TTL */
-	uint64_t tstamp;			/* timestamp */
+	struct timespec stamp;			/* timestamp */
 	uint32_t seqno;				/* 32 bits sequence number (network byte order of course) */
 	uint8_t data[MAXSIZE];
 } vpn_packet_t;

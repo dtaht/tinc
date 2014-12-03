@@ -554,6 +554,7 @@ static void send_udppacket(node_t *n, vpn_packet_t *origpkt) {
 	// One thing I hate about tunnels is they tend to create
 	// invisible routing loops. FIXME We could also decrease the
 	// TTL by the actual path length, rather than by 1.
+
 	int tos;
 	
 	if(priorityinheritance) {
@@ -562,7 +563,7 @@ static void send_udppacket(node_t *n, vpn_packet_t *origpkt) {
 	  tos = 0;
 	}
 
-	logger(LOG_WARNING, "priorityinheritance %d: %d",
+	ifdebug(TRAFFIC) logger(LOG_WARNING, "priorityinheritance %d: %d",
 	       priorityinheritance, tos);
 
 	int *fdptr;
@@ -708,7 +709,7 @@ static node_t *try_harder(const sockaddr_t *from, const vpn_packet_t *pkt) {
 	avl_node_t *node;
 	edge_t *e;
 	node_t *n = NULL;
-	static time_t last_hard_try = 0;
+	static struct timespec last_hard_try = {0};
 
 	for(node = edge_weight_tree->head; node; node = node->next) {
 		e = node->data;
@@ -775,7 +776,7 @@ void handle_incoming_vpn_data(int sock) {
 			case SO_TIMESTAMP: {
 				struct timeval *stamp =
 					(struct timeval *)CMSG_DATA(cmsg);
-				logger(LOG_INFO,"SOL_SOCKET SO_TIMESTAMP %ld.%06ld",
+				ifdebug(TRAFFIC) logger(LOG_INFO,"SOL_SOCKET SO_TIMESTAMP %ld.%06ld",
 				       (long)stamp->tv_sec,
 				       (long)stamp->tv_usec);
 				break;
@@ -783,22 +784,23 @@ void handle_incoming_vpn_data(int sock) {
 			case SO_TIMESTAMPNS: {
 				struct timespec *stamp =
 					(struct timespec *)CMSG_DATA(cmsg);
-				logger(LOG_INFO,"SOL_SOCKET SO_TIMESTAMPNS %ld.%09ld",
+				ifdebug(TRAFFIC) logger(LOG_INFO,"SOL_SOCKET SO_TIMESTAMPNS %ld.%09ld",
 				       (long)stamp->tv_sec,
 				       (long)stamp->tv_nsec);
+				memcpy(&pkt.stamp,stamp,sizeof(struct timespec));
 				break;
 			}
 			case SO_TIMESTAMPING: {
 				struct timespec *stamp =
 					(struct timespec *)CMSG_DATA(cmsg);
-				logger(LOG_INFO,"SOL_SOCKET SO_TIMESTAMPING "
+				ifdebug(TRAFFIC) logger(LOG_INFO,"SOL_SOCKET SO_TIMESTAMPING "
 				       "SW %ld.%09ld ",
 				       (long)stamp->tv_sec,
 				       (long)stamp->tv_nsec);
 				stamp++;
 				/* skip deprecated HW transformed */
 				stamp++;
-				logger(LOG_INFO,"HW raw %ld.%09ld",
+				ifdebug(TRAFFIC) logger(LOG_INFO,"HW raw %ld.%09ld",
 				       (long)stamp->tv_sec,
 				       (long)stamp->tv_nsec);
 				break;
@@ -812,12 +814,12 @@ void handle_incoming_vpn_data(int sock) {
 			switch (cmsg->cmsg_type) {
 			case IPV6_HOPLIMIT:
 			  pkt.outer_ttl = *((int *) CMSG_DATA(cmsg)) & 0xff;
-			  logger(LOG_INFO,"IPPROTO_IPV6: outer_ttl: %d", *(int *) CMSG_DATA(cmsg));
+			  ifdebug(TRAFFIC) logger(LOG_INFO,"IPPROTO_IPV6: outer_ttl: %d", *(int *) CMSG_DATA(cmsg));
 			  break;
 			case IPV6_TCLASS:
 			  dscp_ptr = (uint8_t*) CMSG_DATA(cmsg);
 			  pkt.outer_tos = *dscp_ptr;
-			  logger(LOG_INFO,"IPPROTO_IPV6: outer_tos: %d", pkt.outer_tos);
+			  ifdebug(TRAFFIC) logger(LOG_INFO,"IPPROTO_IPV6: outer_tos: %d", pkt.outer_tos);
 			  break;
 			  //			case IPV6_FLOWLABEL: break;
 			default:
@@ -833,12 +835,12 @@ void handle_incoming_vpn_data(int sock) {
 			case IP_TTL: pkt.outer_ttl = *((int *) CMSG_DATA(cmsg)) & 0xff ; break;
 			case IP_TOS: pkt.outer_tos = *((int *) CMSG_DATA(cmsg)) & 0xff; break;
 			case IP_RECVERR: 
-			  logger(LOG_INFO,"IP_RECVERR");
+			  ifdebug(TRAFFIC) logger(LOG_INFO,"IP_RECVERR");
 				break;
 			case IP_PKTINFO: {
 				struct in_pktinfo *pktinfo =
 					(struct in_pktinfo *)CMSG_DATA(cmsg);
-				logger(LOG_INFO,"IP_PKTINFO interface index %u",
+				ifdebug(TRAFFIC) logger(LOG_INFO,"IP_PKTINFO interface index %u",
 					pktinfo->ipi_ifindex);
 				break;
 			}
