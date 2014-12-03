@@ -136,7 +136,7 @@ bool add_subnet_h(connection_t *c) {
 	/* Fast handoff of roaming MAC addresses */
 
 	if(s.type == SUBNET_MAC && owner != myself && (old = lookup_subnet(myself, &s)) && old->expires)
-		old->expires = now;
+		old->expires = now.tv_sec;
 
 	return true;
 }

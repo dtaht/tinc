@@ -633,7 +633,7 @@ static bool setup_myself(void) {
 	if(!get_config_int(lookup_config(config_tree, "KeyExpire"), &keylifetime))
 		keylifetime = 3600;
 
-	keyexpires = now + keylifetime;
+	keyexpires = now.tv_sec + keylifetime;
 	
 	/* Check if we want to use message authentication codes... */
 
@@ -878,7 +878,7 @@ static bool setup_myself(void) {
   initialize network
 */
 bool setup_network(void) {
-	now = time(NULL);
+	clock_gettime(CLOCK_MONOTONIC,&now);
 
 	init_events();
 	init_connections();

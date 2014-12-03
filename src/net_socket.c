@@ -325,7 +325,7 @@ void retry_outgoing(outgoing_t *outgoing) {
 		event_del(outgoing->event);
 	outgoing->event = new_event();
 	outgoing->event->handler = (event_handler_t) setup_outgoing_connection;
-	outgoing->event->time = now + outgoing->timeout;
+	outgoing->event->time = now.tv_sec + outgoing->timeout;
 	outgoing->event->data = outgoing;
 	event_add(outgoing->event);
 
@@ -337,7 +337,7 @@ void retry_outgoing(outgoing_t *outgoing) {
 void finish_connecting(connection_t *c) {
 	ifdebug(CONNECTIONS) logger(LOG_INFO, "Connected to %s (%s)", c->name, c->hostname);
 
-	c->last_ping_time = now;
+	c->last_ping_time = now.tv_sec;
 
 	send_id(c);
 }
@@ -547,7 +547,7 @@ void setup_outgoing_connection(outgoing_t *outgoing) {
 	}
 
 	c->outgoing = outgoing;
-	c->last_ping_time = now;
+	c->last_ping_time = now.tv_sec;
 
 	connection_add(c);
 
@@ -583,7 +583,7 @@ bool handle_new_meta_connection(int sock) {
 	c->address = sa;
 	c->hostname = sockaddr2hostname(&sa);
 	c->socket = fd;
-	c->last_ping_time = now;
+	c->last_ping_time = now.tv_sec;
 
 	ifdebug(CONNECTIONS) logger(LOG_NOTICE, "Connection from %s", c->hostname);
 

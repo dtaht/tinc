@@ -46,7 +46,7 @@ bool send_meta(connection_t *c, const char *buffer, int length) {
 			   c->name, c->hostname);
 
 	if(!c->outbuflen)
-		c->last_flushed_time = now;
+		c->last_flushed_time = now.tv_sec;
 
 	/* Find room in connection's buffer */
 	if(length + c->outbuflen > c->outbufsize) {

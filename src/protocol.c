@@ -213,7 +213,7 @@ bool seen_request(char *request) {
 	} else {
 		new = xmalloc(sizeof(*new));
 		new->request = xstrdup(request);
-		new->firstseen = now;
+		new->firstseen = now.tv_sec;
 		avl_insert(past_request_tree, new);
 		return false;
 	}
@@ -228,7 +228,7 @@ void age_past_requests(void) {
 		next = node->next;
 		p = node->data;
 
-		if(p->firstseen + pinginterval <= now)
+		if(p->firstseen + pinginterval <= now.tv_sec)
 			avl_delete_node(past_request_tree, node), deleted++;
 		else
 			left++;

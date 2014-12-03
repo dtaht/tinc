@@ -123,7 +123,7 @@ extern int udp_sndbuf;
 extern bool do_prune;
 extern bool do_purge;
 extern char *myport;
-extern time_t now;
+extern struct timespec now;
 extern int contradicting_add_edge;
 extern int contradicting_del_edge;
 

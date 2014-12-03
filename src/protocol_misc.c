@@ -93,7 +93,7 @@ bool termreq_h(connection_t *c) {
 
 bool send_ping(connection_t *c) {
 	c->status.pinged = true;
-	c->last_ping_time = now;
+	c->last_ping_time = now.tv_sec;
 
 	return send_request(c, "%d", PING);
 }

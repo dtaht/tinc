@@ -163,7 +163,7 @@ end:
 	n->mtuevent = new_event();
 	n->mtuevent->handler = (event_handler_t)send_mtu_probe;
 	n->mtuevent->data = n;
-	n->mtuevent->time = now + timeout;
+	n->mtuevent->time = now.tv_sec + timeout;
 	event_add(n->mtuevent);
 }
 
@@ -434,9 +434,9 @@ static void send_udppacket(node_t *n, vpn_packet_t *origpkt) {
 				   "No valid key known yet for %s (%s), forwarding via TCP",
 				   n->name, n->hostname);
 
-		if(n->last_req_key + 10 <= now) {
+		if(n->last_req_key + 10 <= now.tv_sec) {
 			send_req_key(n);
-			n->last_req_key = now;
+			n->last_req_key = now.tv_sec;
 		}
 
 		send_tcppacket(n->nexthop->connection, origpkt);
@@ -717,7 +717,7 @@ static node_t *try_harder(const sockaddr_t *from, const vpn_packet_t *pkt) {
 		if(e->to == myself)
 			continue;
 
-		if(last_hard_try == now && sockaddrcmp_noport(from, &e->address))
+		if(last_hard_try.tv_sec == now.tv_sec && sockaddrcmp_noport(from, &e->address))
 			continue;
 
 		if(!try_mac(e->to, pkt))

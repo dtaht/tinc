@@ -81,11 +81,11 @@ static bool ratelimit(int frequency) {
 	static time_t lasttime = 0;
 	static int count = 0;
 	
-	if(lasttime == now) {
+	if(lasttime == now.tv_sec) {
 		if(count >= frequency)
 			return true;
 	} else {
-		lasttime = now;
+		lasttime = now.tv_sec;
 		count = 0;
 	}
 
@@ -203,7 +203,7 @@ static void learn_mac(mac_t *address) {
 
 		subnet = new_subnet();
 		subnet->type = SUBNET_MAC;
-		subnet->expires = now + macexpire;
+		subnet->expires = now.tv_sec + macexpire;
 		subnet->net.mac.address = *address;
 		subnet->weight = 10;
 		subnet_add(myself, subnet);
@@ -219,7 +219,7 @@ static void learn_mac(mac_t *address) {
 	}
 
 	if(subnet->expires)
-		subnet->expires = now + macexpire;
+		subnet->expires = now.tv_sec + macexpire;
 }
 
 void age_subnets(void) {
@@ -230,7 +230,7 @@ void age_subnets(void) {
 	for(node = myself->subnet_tree->head; node; node = next) {
 		next = node->next;
 		s = node->data;
-		if(s->expires && s->expires <= now) {
+		if(s->expires && s->expires <= now.tv_sec) {
 			ifdebug(TRAFFIC) {
 				char netstr[MAXNETSTR];
 				if(net2str(netstr, sizeof netstr, s))

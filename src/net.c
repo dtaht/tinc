@@ -55,7 +55,7 @@ volatile bool running = false;
 bool graph_dump = false;
 #endif
 
-time_t now = 0;
+struct timespec now = {0};
 int contradicting_add_edge = 0;
 int contradicting_del_edge = 0;
 static int sleeptime = 10;
@@ -250,14 +250,16 @@ static void check_dead_connections(void) {
 		next = node->next;
 		c = node->data;
 
-		if(c->last_ping_time + pingtimeout <= now) {
+		if(c->last_ping_time + pingtimeout <= now.tv_sec) {
 			if(c->status.active) {
 				if(c->status.pinged) {
-					ifdebug(CONNECTIONS) logger(LOG_INFO, "%s (%s) didn't respond to PING in %ld seconds",
-							   c->name, c->hostname, (long)now - c->last_ping_time);
+					ifdebug(CONNECTIONS) logger(LOG_INFO,
+					       "%s (%s) didn't respond to PING in %ld seconds",
+						c->name, c->hostname,
+							  (long)now.tv_sec - c->last_ping_time);
 					c->status.timeout = true;
 					terminate_connection(c, true);
-				} else if(c->last_ping_time + pinginterval <= now) {
+				} else if(c->last_ping_time + pinginterval <= now.tv_sec) {
 					send_ping(c);
 				}
 			} else {
@@ -279,11 +281,12 @@ static void check_dead_connections(void) {
 			}
 		}
 
-		if(c->outbuflen > 0 && c->last_flushed_time + pingtimeout <= now) {
+		if(c->outbuflen > 0 && c->last_flushed_time + pingtimeout <= now.tv_sec) {
 			if(c->status.active) {
 				ifdebug(CONNECTIONS) logger(LOG_INFO,
-						"%s (%s) could not flush for %ld seconds (%d bytes remaining)",
-						c->name, c->hostname, (long)now - c->last_flushed_time, c->outbuflen);
+				       "%s (%s) could not flush for %ld seconds (%d bytes remaining)",
+					c->name, c->hostname,
+					(long)now.tv_sec - c->last_flushed_time, c->outbuflen);
 				c->status.timeout = true;
 				terminate_connection(c, true);
 			}
@@ -384,11 +387,11 @@ int main_loop(void) {
 	time_t last_ping_check, last_config_check, last_graph_dump;
 	event_t *event;
 
-	last_ping_check = now;
-	last_config_check = now;
-	last_graph_dump = now;
+	last_ping_check = now.tv_sec;
+	last_config_check = now.tv_sec;
+	last_graph_dump = now.tv_sec;
 	
-	srand(now);
+	srand(now.tv_nsec);
 
 #ifdef HAVE_PSELECT
 	if(lookup_config(config_tree, "GraphDumpFile"))
@@ -411,10 +414,10 @@ int main_loop(void) {
 		if((event = peek_next_event()) && next_event > event->time)
 			next_event = event->time;
 
-		if(next_event <= now)
+		if(next_event <= now.tv_sec)
 			tv.tv_sec = 0;
 		else
-			tv.tv_sec = next_event - now;
+			tv.tv_sec = next_event - now.tv_sec;
 		tv.tv_nsec = 0;
 #else
 		tv.tv_sec = 1;
@@ -431,7 +434,7 @@ int main_loop(void) {
 #else
 		r = select(maxfd + 1, &readset, &writeset, NULL, &tv);
 #endif
-		now = time(NULL);
+		clock_gettime(CLOCK_MONOTONIC, &now);
 #ifdef HAVE_MINGW
 		EnterCriticalSection(&mutex);
 #endif
@@ -454,9 +457,9 @@ int main_loop(void) {
 
 		/* Let's check if everybody is still alive */
 
-		if(last_ping_check + pingtimeout <= now) {
+		if(last_ping_check + pingtimeout <= now.tv_sec) {
 			check_dead_connections();
-			last_ping_check = now;
+			last_ping_check = now.tv_sec;
 
 			if(routing_mode == RMODE_SWITCH)
 				age_subnets();
@@ -465,7 +468,7 @@ int main_loop(void) {
 
 			/* Should we regenerate our key? */
 
-			if(keyexpires <= now) {
+			if(keyexpires <= now.tv_sec) {
 				avl_node_t *node;
 				node_t *n;
 
@@ -480,7 +483,7 @@ int main_loop(void) {
 				}
 
 				send_key_changed();
-				keyexpires = now + keylifetime;
+				keyexpires = now.tv_sec + keylifetime;
 			}
 
 			/* Detect ADD_EDGE/DEL_EDGE storms that are caused when
@@ -580,7 +583,7 @@ int main_loop(void) {
 				free(fname);
 			}
 
-			last_config_check = now;
+			last_config_check = now.tv_sec;
 
 			/* If StrictSubnet is set, expire deleted Subnets and read new ones in */
 
@@ -619,9 +622,9 @@ int main_loop(void) {
 		
 		/* Dump graph if wanted every 60 seconds*/
 
-		if(last_graph_dump + 60 <= now) {
+		if(last_graph_dump + 60 <= now.tv_sec) {
 			dump_graph();
-			last_graph_dump = now;
+			last_graph_dump = now.tv_sec;
 		}
 	}
 
