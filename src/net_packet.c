@@ -602,7 +602,9 @@ static void send_udppacket(node_t *n, vpn_packet_t *origpkt) {
 	iov[0].iov_base = &inpkt->seqno;
 
 	// MSG_DONTWAIT?
-	
+	// struct timespec timecheck;
+	// clock_gettime(CLOCK_REALTIME, &timecheck);
+	// logger(LOG_INFO,"packet processing time %ld.%ld\n", timecheck.tv_sec - origpkt->stamp.tv_sec, timecheck.tv_nsec - origpkt->stamp.tv_nsec);
 	if((sockerrno = sendmsg(listen_socket[sock].udp, &msg, 0)) < 0
 	   && !sockwouldblock(sockerrno)) {
 		if(sockmsgsize(sockerrno)) {
